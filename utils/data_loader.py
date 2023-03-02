@@ -86,17 +86,22 @@ def build_sparse_graph(data_cf):
         return norm_adj.tocoo()
 
     cf = data_cf.copy()
-    cf[:, 1] = cf[:, 1] + n_users  # [0, n_items) -> [n_users, n_users+n_items)
-    cf_ = cf.copy()
-    cf_[:, 0], cf_[:, 1] = cf[:, 1], cf[:, 0]  # user->item, item->user
+    cf0 = data_cf.copy()
+    cf0[:, 1] = cf0[:, 1] + n_users  # [0, n_items) -> [n_users, n_users+n_items)
+    cf_ = cf0.copy()
+    cf_[:, 0], cf_[:, 1] = cf0[:, 1], cf0[:, 0]  # user->item, item->user
 
     # diag = np.array([[i, i] for i in range(n_users+n_items)])
     # cf_ = np.concatenate([cf, cf_, diag], axis=0)  # [[0, R], [R^T, 0]] + I
-    cf_ = np.concatenate([cf, cf_], axis=0)  # [[0, R], [R^T, 0]]
+    cf_ = np.concatenate([cf0, cf_], axis=0)  # [[0, R], [R^T, 0]]
 
     vals = [1.] * len(cf_)
+    vals1 = [1.] * len(cf[:, 0])
+    vals2 = [1.] * len(cf[:, 0])
     mat = sp.coo_matrix((vals, (cf_[:, 0], cf_[:, 1])), shape=(n_users+n_items, n_users+n_items))
-    return _bi_norm_lap(mat)
+    mat1 = sp.coo_matrix((vals1, (cf[:, 0], cf[:, 1])), shape=(n_users, n_items))
+    mat2 = sp.coo_matrix((vals2, (cf[:, 1], cf[:, 0])), shape=(n_items, n_users))
+    return _bi_norm_lap(mat), _si_norm_lap(mat1), _si_norm_lap(mat2)
 
 
 def load_data(model_args):
@@ -122,7 +127,7 @@ def load_data(model_args):
     statistics(train_cf, valid_cf, test_cf)
 
     print('building the adj mat ...')
-    norm_mat = build_sparse_graph(train_cf)
+    norm_mat, norm_ui, norm_iu = build_sparse_graph(train_cf)
 
     n_params = {
         'n_users': int(n_users),
@@ -135,5 +140,5 @@ def load_data(model_args):
     }
 
     print('loading over ...')
-    return train_cf, user_dict, n_params, norm_mat
+    return train_cf, user_dict, n_params, norm_mat, norm_ui, norm_iu
 
