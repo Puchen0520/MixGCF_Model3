@@ -95,7 +95,6 @@ def test_one_user(x):
         training_items = []
 
     # user u's items in the test set
-    print('检查：',test_user_set[u])
     user_pos_test = test_user_set[u]
 
     all_items = set(range(0, n_items))
@@ -162,7 +161,7 @@ def test(model, user_dict, n_params, mode='test'):
 
                 item_batch = torch.LongTensor(np.array(range(i_start, i_end))).view(i_end-i_start).to(device)
                 i_g_embddings = item_gcn_emb[item_batch]
-
+                #print(u_g_embeddings, i_g_embddings)
                 i_rate_batch = model.rating(u_g_embeddings, i_g_embddings).detach().cpu()
 
                 rate_batch[:, i_start:i_end] = i_rate_batch
