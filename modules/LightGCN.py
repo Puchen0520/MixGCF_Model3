@@ -5,22 +5,25 @@ Created on October 1, 2020
 '''
 import torch
 import torch.nn as nn
-
+import copy
+import numpy as np
 
 class GraphConv(nn.Module):
     """
     Graph Convolutional Network
     """
-    def __init__(self, n_hops, n_users, interact_mat,
+    def __init__(self, n_hops, n_users, interact_mat, norm_ui, norm_iu,
                  edge_dropout_rate=0.5, mess_dropout_rate=0.1):
         super(GraphConv, self).__init__()
 
         self.interact_mat = interact_mat
+        self.norm_ui = norm_ui.to(torch.device("cuda:0"))
+        self.norm_iu = norm_iu.to(torch.device("cuda:0"))
         self.n_users = n_users
         self.n_hops = n_hops
         self.edge_dropout_rate = edge_dropout_rate
         self.mess_dropout_rate = mess_dropout_rate
-
+        self.double_mat = torch.sparse.mm(self.norm_ui, self.norm_iu)
         self.dropout = nn.Dropout(p=mess_dropout_rate)  # mess dropout
 
     def _sparse_dropout(self, x, rate=0.5):
@@ -44,32 +47,32 @@ class GraphConv(nn.Module):
         # item_embed: [n_items, channel]
 
         # all_embed: [n_users+n_items, channel]
-        all_embed = torch.cat([user_embed, item_embed], dim=0)
-        agg_embed = all_embed
-        embs = [all_embed]
+        #item_embed = item_embed.to(user_embed.device)
+        #print(user_embed.device,item_embed.device) 
 
+        agg_embed = torch.sparse.mm(self.norm_ui,item_embed)
+        embs = []
         for hop in range(self.n_hops):
-            interact_mat = self._sparse_dropout(self.interact_mat,
-                                                self.edge_dropout_rate) if edge_dropout \
-                                                                        else self.interact_mat
 
-            agg_embed = torch.sparse.mm(interact_mat, agg_embed)
+            #agg_embed = torch.sparse.mm(norm_iu, agg_embed)
+            #temp_embed = copy.copy(agg_embed)
+            agg_embed = torch.sparse.mm(self.double_mat, agg_embed)
             if mess_dropout:
                 agg_embed = self.dropout(agg_embed)
-            # agg_embed = F.normalize(agg_embed)
             embs.append(agg_embed)
         embs = torch.stack(embs, dim=1)  # [n_entity, n_hops+1, emb_size]
-        return embs[:self.n_users, :], embs[self.n_users:, :]
-
+        #item_embed = torch.sparse.mm(self.norm_iu, agg_embed)
+        return embs, item_embed.unsqueeze(dim=1)
 
 class LightGCN(nn.Module):
-    def __init__(self, data_config, args_config, adj_mat):
+    def __init__(self, data_config, args_config, adj_mat, norm_ui, norm_iu):
         super(LightGCN, self).__init__()
 
         self.n_users = data_config['n_users']
         self.n_items = data_config['n_items']
         self.adj_mat = adj_mat
-
+        self.norm_ui = norm_ui
+        self.norm_iu = norm_iu
         self.decay = args_config.l2
         self.emb_size = args_config.dim
         self.context_hops = args_config.context_hops
@@ -85,7 +88,7 @@ class LightGCN(nn.Module):
         self.device = torch.device("cuda:0") if args_config.cuda else torch.device("cpu")
 
         self._init_weight()
-        self.user_embed = nn.Parameter(self.user_embed)
+        #self.user_embed = nn.Parameter(self.user_embed)
         self.item_embed = nn.Parameter(self.item_embed)
 
         self.gcn = self._init_model()
@@ -94,13 +97,16 @@ class LightGCN(nn.Module):
         initializer = nn.init.xavier_uniform_
         self.user_embed = initializer(torch.empty(self.n_users, self.emb_size))
         self.item_embed = initializer(torch.empty(self.n_items, self.emb_size))
-
         # [n_users+n_items, n_users+n_items]
         self.sparse_norm_adj = self._convert_sp_mat_to_sp_tensor(self.adj_mat).to(self.device)
+        self.norm_ui2 = self._convert_sp_mat_to_sp_tensor(self.norm_ui).to(self.device)
+        self.norm_iu2 = self._convert_sp_mat_to_sp_tensor(self.norm_iu).to(self.device)
 
     def _init_model(self):
         return GraphConv(n_hops=self.context_hops,
                          n_users=self.n_users,
+                         norm_ui = self.norm_ui2,
+                         norm_iu = self.norm_iu2,
                          interact_mat=self.sparse_norm_adj,
                          edge_dropout_rate=self.edge_dropout_rate,
                          mess_dropout_rate=self.mess_dropout_rate)
@@ -118,11 +124,13 @@ class LightGCN(nn.Module):
 
         # user_gcn_emb: [n_users, channel]
         # item_gcn_emb: [n_users, channel]
+        
         user_gcn_emb, item_gcn_emb = self.gcn(self.user_embed,
                                               self.item_embed,
                                               edge_dropout=self.edge_dropout,
                                               mess_dropout=self.mess_dropout)
-
+        #print(user_gcn_emb.shape,item_gcn_emb.shape)
+        item_gcm_emb = torch.sparse.mm(self.norm_iu2, user_gcn_emb[:,-1,:])
         if self.ns == 'rns':  # n_negs = 1
             neg_gcn_embs = item_gcn_emb[neg_item[:, :self.K]]
         else:
@@ -183,7 +191,7 @@ class LightGCN(nn.Module):
         # user_gcn_emb: [batch_size, n_hops+1, channel]
         # pos_gcn_embs: [batch_size, n_hops+1, channel]
         # neg_gcn_embs: [batch_size, K, n_hops+1, channel]
-
+        
         batch_size = user_gcn_emb.shape[0]
 
         u_e = self.pooling(user_gcn_emb)
@@ -192,7 +200,6 @@ class LightGCN(nn.Module):
 
         pos_scores = torch.sum(torch.mul(u_e, pos_e), axis=1)
         neg_scores = torch.sum(torch.mul(u_e.unsqueeze(dim=1), neg_e), axis=-1)  # [batch_size, K]
-
         mf_loss = torch.mean(torch.log(1+torch.exp(neg_scores - pos_scores.unsqueeze(dim=1)).sum(dim=1)))
 
         # cul regularizer
@@ -202,3 +209,4 @@ class LightGCN(nn.Module):
         emb_loss = self.decay * regularize / batch_size
 
         return mf_loss + emb_loss, mf_loss, emb_loss
+
