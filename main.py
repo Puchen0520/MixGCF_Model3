@@ -62,7 +62,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:0") if args.cuda else torch.device("cpu")
 
     """build dataset"""
-    train_cf, user_dict, n_params, norm_mat = load_data(args)
+    train_cf, user_dict, n_params, norm_mat, norm_ui, norm_iu = load_data(args)
     train_cf_size = len(train_cf)
     train_cf = torch.LongTensor(np.array([[cf[0], cf[1]] for cf in train_cf], np.int32))
 
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     from modules.LightGCN import LightGCN
     from modules.NGCF import NGCF
     if args.gnn == 'lightgcn':
-        model = LightGCN(n_params, args, norm_mat).to(device)
+        model = LightGCN(n_params, args, norm_mat, norm_ui, norm_iu).to(device)
     else:
         model = NGCF(n_params, args, norm_mat).to(device)
 
