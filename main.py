@@ -85,7 +85,8 @@ if __name__ == '__main__':
     cur_best_pre_0 = 0
     stopping_step = 0
     should_stop = False
-
+    print("loading model...")
+    #model.load_state_dict(torch.load(args.in_dir + 'model__' + '.ckpt'))
     print("start training ...")
     for epoch in range(args.epoch):
         # shuffle training data
@@ -95,7 +96,9 @@ if __name__ == '__main__':
         train_cf_ = train_cf_[index].to(device)
 
         """training"""
+        
         model.train()
+        
         loss, s = 0, 0
         hits = 0
         train_s_t = time()
@@ -154,7 +157,7 @@ if __name__ == '__main__':
 
         """save weight"""
         if valid_ret['recall'][0] == cur_best_pre_0 and args.save:
-            torch.save(model.state_dict(), args.out_dir + 'model_' + '.ckpt')
+            torch.save(model.state_dict(), args.out_dir + 'model___' + '.ckpt')
         # else:
         #     # logging.info('training loss at epoch %d: %f' % (epoch, loss.item()))
         #     trainhis = 'using time %.4fs, training loss at epoch %d: %.4f' % (train_e_t - train_s_t, epoch, loss.item())
