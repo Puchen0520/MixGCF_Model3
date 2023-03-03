@@ -1,7 +1,5 @@
 '''
-Created on October 1, 2020
-
-@author: Tinglin Huang (huangtinglin@outlook.com)
+Changes include Model3 and MixGCF para
 '''
 import torch
 import torch.nn as nn
@@ -84,19 +82,21 @@ class LightGCN(nn.Module):
         self.n_negs = args_config.n_negs
         self.ns = args_config.ns
         self.K = args_config.K
+        self.batch_size = args_config.batch_size
 
         self.device = torch.device("cuda:0") if args_config.cuda else torch.device("cpu")
 
         self._init_weight()
         #self.user_embed = nn.Parameter(self.user_embed)
         self.item_embed = nn.Parameter(self.item_embed)
-
+        self.seed_embed = nn.Parameter(self.seed_embed)
         self.gcn = self._init_model()
 
     def _init_weight(self):
         initializer = nn.init.xavier_uniform_
         self.user_embed = initializer(torch.empty(self.n_users, self.emb_size))
         self.item_embed = initializer(torch.empty(self.n_items, self.emb_size))
+        self.seed_embed = initializer(torch.empty(self.batch_size,1))
         # [n_users+n_items, n_users+n_items]
         self.sparse_norm_adj = self._convert_sp_mat_to_sp_tensor(self.adj_mat).to(self.device)
         self.norm_ui2 = self._convert_sp_mat_to_sp_tensor(self.norm_ui).to(self.device)
@@ -146,11 +146,13 @@ class LightGCN(nn.Module):
     def negative_sampling(self, user_gcn_emb, item_gcn_emb, user, neg_candidates, pos_item):
         batch_size = user.shape[0]
         s_e, p_e = user_gcn_emb[user], item_gcn_emb[pos_item]  # [batch_size, n_hops+1, channel]
+        seed = self.seed_embed.unsqueeze(dim=1).unsqueeze(dim=1)
         if self.pool != 'concat':
             s_e = self.pooling(s_e).unsqueeze(dim=1)
 
         """positive mixing"""
-        seed = torch.rand(batch_size, 1, p_e.shape[1], 1).to(p_e.device)  # (0, 1)
+        #seed1 = torch.rand(batch_size, 1, p_e.shape[1], 1).to(p_e.device)  # (0, 1)
+        #print(seed)
         n_e = item_gcn_emb[neg_candidates]  # [batch_size, n_negs, n_hops, channel]
         n_e_ = seed * p_e.unsqueeze(dim=1) + (1 - seed) * n_e  # mixing
 
