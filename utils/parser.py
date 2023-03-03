@@ -46,5 +46,8 @@ def parse_args():
     parser.add_argument(
         "--out_dir", type=str, default="./weights/yelp2018/", help="output directory for model"
     )
+    parser.add_argument(
+        "--in_dir", type=str, default="./weights/yelp2018/", help="input directory for model"
+    )
     parser.add_argument("--his_path", type=str, default='data/', help="history to save")
     return parser.parse_args()
