@@ -130,7 +130,7 @@ class LightGCN(nn.Module):
                                               edge_dropout=self.edge_dropout,
                                               mess_dropout=self.mess_dropout)
         #print(user_gcn_emb.shape,item_gcn_emb.shape)
-        item_gcn_emb = torch.sparse.mm(self.norm_iu2, user_gcn_emb[:,-1,:])
+        item_gcn_emb = torch.sparse.mm(self.norm_iu2, self.pooling(user_gcn_emb)).unsqueeze(dim=1)
         if self.ns == 'rns':  # n_negs = 1
             neg_gcn_embs = item_gcn_emb[neg_item[:, :self.K]]
         else:
